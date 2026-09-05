@@ -1,0 +1,38 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+html,
+body {
+  @apply bg-fortune-cream text-fortune-ink font-body;
+}
+
+h1,
+h2,
+h3 {
+  @apply font-display;
+}
+
+.btn-primary {
+  @apply inline-flex items-center justify-center rounded-lg bg-fortune-green px-5 py-3 font-semibold text-white transition hover:bg-fortune-greenDark disabled:cursor-not-allowed disabled:opacity-50;
+}
+
+.btn-secondary {
+  @apply inline-flex items-center justify-center rounded-lg border border-fortune-green px-5 py-3 font-semibold text-fortune-green transition hover:bg-fortune-greenLight disabled:cursor-not-allowed disabled:opacity-50;
+}
+
+.field-label {
+  @apply mb-1 block text-sm font-medium text-fortune-ink/80;
+}
+
+.field-input {
+  @apply w-full rounded-lg border border-fortune-ink/15 bg-white px-3.5 py-2.5 text-fortune-ink placeholder:text-fortune-ink/35 focus:border-fortune-green focus:outline-none focus:ring-2 focus:ring-fortune-green/20;
+}
+
+.field-error {
+  @apply mt-1 text-sm text-fortune-terracotta;
+}
+
+.card {
+  @apply rounded-2xl border border-fortune-ink/10 bg-white p-6 shadow-sm sm:p-8;
+}
