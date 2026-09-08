@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { fetchApplication, getApiErrorMessage, submitToCore } from '../../api/client';
+import { rejectApplication, downloadMembershipForm } from '../../api/onboarding';
 import { CbsApplication, statusLabel } from '../../types';
 import { buildDocImages, DocImage } from '../../utils/images';
 
@@ -29,6 +30,9 @@ export default function AdminApplicationDetail() {
   const navigate = useNavigate();
   const [app, setApp] = useState<CbsApplication | null>(null);
   const [busy, setBusy] = useState(false);
+  const [rejecting, setRejecting] = useState(false);
+  const [rejectReason, setRejectReason] = useState('');
+  const [showReject, setShowReject] = useState(false);
   const [message, setMessage] = useState<{ kind: 'ok' | 'err' | 'info'; text: string } | null>(null);
   const [lightbox, setLightbox] = useState<DocImage | null>(null);
 
@@ -70,6 +74,40 @@ export default function AdminApplicationDetail() {
     }
   };
 
+  const reject = async () => {
+    if (!rejectReason.trim()) return;
+    setMessage(null);
+    setRejecting(true);
+    try {
+      await rejectApplication(id as string, rejectReason.trim());
+      setShowReject(false);
+      setMessage({ kind: 'ok', text: `Application rejected. The member was notified via SMS with the reason.` });
+      load();
+    } catch (err: any) {
+      setMessage({ kind: 'err', text: getApiErrorMessage(err, 'Could not reject the application') });
+    } finally {
+      setRejecting(false);
+    }
+  };
+
+  const printMembershipForm = async () => {
+    setMessage(null);
+    try {
+      const blob = await downloadMembershipForm(id as string);
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `membership-form-${app?.appRef || id}.doc`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+      setMessage({ kind: 'info', text: 'Membership form downloaded.' });
+    } catch (err: any) {
+      setMessage({ kind: 'err', text: getApiErrorMessage(err, 'Could not generate the membership form') });
+    }
+  };
+
   if (!app) return <p className="text-fortune-ink/60">Loading…</p>;
 
   const name = `${app.salutation ? `${app.salutation} ` : ''}${app.firstName || ''} ${app.middleName ? `${app.middleName} ` : ''}${app.lastName || ''}`.trim();
@@ -108,6 +146,21 @@ export default function AdminApplicationDetail() {
           <Badge ok={app.paybill} label="Paybill" />
           <Badge ok={app.standingOrderEnabled} label="Standing order" />
           <Badge ok={app.paymentAmount && app.paymentAmount > 0} label="Payment received" />
+        </div>
+
+        <div className="mb-6 flex flex-wrap gap-3">
+          <button className="btn-secondary" type="button" onClick={printMembershipForm}>
+            Print membership form
+          </button>
+          {status !== 'REJECTED' && (
+            <button
+              className="rounded-lg bg-fortune-terracotta px-4 py-2 text-sm font-semibold text-white transition hover:bg-fortune-terracotta/80"
+              type="button"
+              onClick={() => setShowReject(true)}
+            >
+              Reject
+            </button>
+          )}
         </div>
 
         <div className="grid grid-cols-1 gap-6 sm:grid-cols-2">
@@ -209,6 +262,43 @@ export default function AdminApplicationDetail() {
           </div>
         )}
       </div>
+
+      {showReject && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"
+          onClick={() => setShowReject(false)}
+        >
+          <div
+            className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h2 className="text-lg font-semibold text-fortune-ink">Reject this application</h2>
+            <p className="mt-1 text-sm text-fortune-ink/50">
+              The member will receive an SMS explaining the rejection below.
+            </p>
+            <textarea
+              className="field-input mt-4"
+              rows={4}
+              placeholder="Reason for rejection (e.g. Incomplete documents, ID not verified…)"
+              value={rejectReason}
+              onChange={(e) => setRejectReason(e.target.value)}
+              autoFocus
+            />
+            <div className="mt-4 flex justify-end gap-3">
+              <button className="btn-secondary" type="button" onClick={() => setShowReject(false)}>
+                Cancel
+              </button>
+              <button
+                className="rounded-lg bg-fortune-terracotta px-4 py-2 text-sm font-semibold text-white transition hover:bg-fortune-terracotta/80 disabled:opacity-50"
+                disabled={rejecting || !rejectReason.trim()}
+                onClick={reject}
+              >
+                {rejecting ? 'Rejecting…' : 'Confirm rejection'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {lightbox && (
         <div

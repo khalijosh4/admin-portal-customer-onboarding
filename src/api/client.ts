@@ -1,9 +1,6 @@
 import axios from 'axios';
-import { API_READ_BASE, API_SUBMIT_BASE } from '../config';
+import { CBS_READ_BASE as API_READ_BASE, CBS_SUBMIT_BASE as API_SUBMIT_BASE } from '../config';
 import type { ApiEnvelope, CbsApplication, CoreSubmission, SubmissionOutcome } from '../types';
-
-export const READ_BASE = API_READ_BASE;
-export const SUBMIT_BASE = API_SUBMIT_BASE;
 
 /** Extract a human-readable message from any error shape. */
 export function getApiErrorMessage(error: any, fallback = 'Something went wrong'): string {
