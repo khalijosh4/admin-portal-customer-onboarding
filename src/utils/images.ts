@@ -41,6 +41,7 @@ export function buildDocImages(app: Record<string, any>): DocImage[] {
     { key: 'idFrontUrl',  label: 'ID front',  dataUrl: imageDataUrl(app.idFrontUrl) },
     { key: 'idBackUrl',   label: 'ID back',   dataUrl: imageDataUrl(app.idBackUrl) },
     { key: 'passportUrl', label: 'Passport photo', dataUrl: imageDataUrl(app.passportUrl) },
+    { key: 'selfieUrl',   label: 'Selfie',    dataUrl: imageDataUrl(app.selfieUrl) },
     { key: 'signatureUrl', label: 'Signature', dataUrl: imageDataUrl(app.signatureUrl) },
   ];
 }

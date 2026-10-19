@@ -61,8 +61,16 @@ export interface CbsApplication {
   idBackUrl?: string;
   passportUrl?: string;
   signatureUrl?: string;
+  selfieUrl?: string;
 
   iprsVerified?: boolean;
+
+  // Manual identity review (admin action), when present on the application.
+  identityReviewStatus?: string;
+  identityReviewDecision?: string;
+  identityStatus?: string;
+  identityReviewed?: boolean;
+  identityReviewedAt?: string | null;
   internetBanking?: boolean;
   mobileBanking?: boolean;
   paybill?: boolean;

@@ -1,6 +1,6 @@
 import { FormEvent, useEffect, useMemo, useState } from 'react';
 import { fetchAllApplications } from '../../api/client';
-import { listNotificationTemplates, sendCustomerNotification, listNotifications } from '../../api/onboarding';
+import { listNotificationTemplates, sendCustomerNotification } from '../../api/onboarding';
 import { CbsApplication } from '../../types';
 
 interface Template {
@@ -15,7 +15,6 @@ interface Template {
 export default function AdminNotifications() {
   const [applications, setApplications] = useState<CbsApplication[]>([]);
   const [templates, setTemplates] = useState<Template[]>([]);
-  const [sentLog, setSentLog] = useState<any[]>([]);
 
   // Selection
   const [selectedApp, setSelectedApp] = useState<string>('');
@@ -31,17 +30,23 @@ export default function AdminNotifications() {
 
   const load = async () => {
     try {
-      const [apps, templatesRes, log] = await Promise.all([
+      const [apps, templatesRes] = await Promise.allSettled([
         fetchAllApplications(),
         listNotificationTemplates(),
-        listNotifications(50),
       ]);
-      setApplications(apps);
-      setTemplates(templatesRes);
-      if (!selectedApp && apps.length) setSelectedApp(apps[0].applicationId || String(apps[0].id));
-      if (Array.isArray(log)) setSentLog(log);
+      if (apps.status === 'fulfilled') {
+        setApplications(apps.value);
+        if (!selectedApp && apps.value.length) setSelectedApp(apps.value[0].applicationId || String(apps.value[0].id));
+      }
+      if (templatesRes.status === 'fulfilled') setTemplates(templatesRes.value);
+      const failed = [apps, templatesRes].filter((r) => r.status === 'rejected');
+      if (failed.length) {
+        const first = failed[0] as PromiseRejectedResult;
+        const msg = (first.reason as any)?.response?.data?.error?.message || (first.reason as any)?.message || 'Could not load some data';
+        setError(`Could not load everything: ${msg}. Members from the applications list are still shown below.`);
+      }
     } catch {
-      // silent for log; errors surface on send
+      // silent; errors surface on send
     }
   };
 
@@ -88,7 +93,6 @@ export default function AdminNotifications() {
       if ('sms' === channel || 'both' === channel) parts.push(`SMS: ${result.smsSent ? 'sent' : 'failed (dev mode logs it)'}`);
       if ('email' === channel || 'both' === channel) parts.push(`Email: ${result.emailSent ? 'sent' : 'failed (dev mode logs it)'}`);
       setMessage(`Notification sent → ${parts.join(' · ')}`);
-      setSentLog(await listNotifications(50));
     } catch (err: any) {
       setError(err?.response?.data?.error?.message || err?.message || 'Could not send notification');
     } finally {
@@ -167,30 +171,6 @@ export default function AdminNotifications() {
           </div>
         </div>
       </form>
-
-      <div className="card">
-        <h2 className="mb-4 font-semibold text-fortune-ink">Recent notifications</h2>
-        {sentLog.length === 0 ? (
-          <p className="text-fortune-ink/60">No notifications sent yet.</p>
-        ) : (
-          <div className="space-y-3">
-            {sentLog.slice(0, 20).map((n) => (
-              <div key={n.id} className="rounded-lg border border-fortune-ink/10 p-3">
-                <div className="flex items-center justify-between gap-3">
-                  <p className="text-sm font-semibold text-fortune-ink">{n.title}</p>
-                  <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${n.audience === 'admin' ? 'bg-fortune-blueLight text-fortune-blueDark' : 'bg-fortune-gold/15 text-fortune-goldDark'}`}>
-                    {n.audience === 'admin' ? 'Admin' : 'Customer'}
-                  </span>
-                </div>
-                <p className="mt-1 text-sm text-fortune-ink/70">{n.body}</p>
-                <p className="mt-1 text-xs text-fortune-ink/40">
-                  {n.channel} · {n.recipient || 'in-app'} · {new Date(n.createdAt).toLocaleString()}
-                </p>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
     </div>
   );
 }

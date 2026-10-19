@@ -1,5 +1,6 @@
 import axios from 'axios';
 import { ONBOARDING_BASE } from '../config';
+import type { CbsApplication } from '../types';
 
 // ------------------------------------------------------------------
 // Onboarding backend API client (admin auth, user mgmt, profile,
@@ -35,18 +36,47 @@ export function clearOnboardingSession() {
   localStorage.removeItem(USER_KEY);
 }
 
-function authHeaders(): Record<string, string> {
+/** Shared axios instance for the onboarding backend. */
+const client = axios.create({
+  baseURL: ONBOARDING_BASE,
+  timeout: 20000,
+  headers: { 'Content-Type': 'application/json' },
+});
+
+client.interceptors.request.use((config) => {
   const token = getOnboardingToken();
-  return token ? { Authorization: `Bearer ${token}` } : {};
+  if (token) config.headers.Authorization = `Bearer ${token}`;
+  return config;
+});
+
+client.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    const url = error?.config?.url as string | undefined;
+    if (error?.response?.status === 401 && url && url.startsWith('/admin') && !url.includes('/admin/login')) {
+      clearOnboardingSession();
+      if (!window.location.pathname.endsWith('/login')) window.location.assign('/login');
+    }
+    return Promise.reject(error);
+  },
+);
+
+function jwtExpSeconds(token: string): number | null {
+  try {
+    const payload = token.split('.')[1]?.replace(/-/g, '+').replace(/_/g, '/');
+    if (!payload) return null;
+    const decoded = JSON.parse(atob(payload));
+    return typeof decoded?.exp === 'number' ? decoded.exp : null;
+  } catch {
+    return null;
+  }
 }
 
-/** Create an axios instance for the onboarding backend. */
-function client() {
-  return axios.create({
-    baseURL: ONBOARDING_BASE,
-    timeout: 20000,
-    headers: { 'Content-Type': 'application/json', ...authHeaders() },
-  });
+export function isOnboardingTokenExpired(): boolean {
+  const token = getOnboardingToken();
+  if (!token) return true;
+  const exp = jwtExpSeconds(token);
+  return exp != null && exp * 1000 <= Date.now();
 }
 
 // ------------------------------------------------------------------
@@ -54,7 +84,7 @@ function client() {
 // ------------------------------------------------------------------
 
 export async function login(email: string, password: string) {
-  const { data } = await client().post('/admin/login', { email, password });
+  const { data } = await client.post('/admin/login', { email, password });
   return data as { accessToken: string; admin: any };
 }
 
@@ -63,22 +93,22 @@ export async function login(email: string, password: string) {
 // ------------------------------------------------------------------
 
 export async function getProfile() {
-  const { data } = await client().get('/admin/profile');
+  const { data } = await client.get('/admin/profile');
   return data;
 }
 
 export async function updateProfile(fields: { email?: string; phone?: string; fullName?: string }) {
-  const { data } = await client().patch('/admin/profile', fields);
+  const { data } = await client.patch('/admin/profile', fields);
   return data;
 }
 
 export async function changePassword(currentPassword: string, newPassword: string) {
-  const { data } = await client().post('/admin/profile/change-password', { currentPassword, newPassword });
+  const { data } = await client.post('/admin/profile/change-password', { currentPassword, newPassword });
   return data as { accessToken: string; admin: any };
 }
 
 export async function completePasswordChange(newPassword: string) {
-  const { data } = await client().post('/admin/profile/complete-password-change', { newPassword });
+  const { data } = await client.post('/admin/profile/complete-password-change', { newPassword });
   return data as { accessToken: string; admin: any };
 }
 
@@ -87,22 +117,22 @@ export async function completePasswordChange(newPassword: string) {
 // ------------------------------------------------------------------
 
 export async function listUsers() {
-  const { data } = await client().get('/admin/users');
+  const { data } = await client.get('/admin/users');
   return data as any[];
 }
 
 export async function createUser(payload: { email: string; phone?: string; fullName: string; password: string; role?: string }) {
-  const { data } = await client().post('/admin/users', payload);
+  const { data } = await client.post('/admin/users', payload);
   return data;
 }
 
 export async function resetPassword(userId: string, newPassword: string) {
-  const { data } = await client().post(`/admin/users/${userId}/reset-password`, { newPassword });
+  const { data } = await client.post(`/admin/users/${userId}/reset-password`, { newPassword });
   return data;
 }
 
 export async function setUserActive(userId: string, active: boolean) {
-  const { data } = await client().post(`/admin/users/${userId}/set-active`, { active: String(active) });
+  const { data } = await client.post(`/admin/users/${userId}/set-active`, { active: String(active) });
   return data;
 }
 
@@ -110,32 +140,35 @@ export async function setUserActive(userId: string, active: boolean) {
 // Applications (from onboarding backend — may differ from CBS)
 // ------------------------------------------------------------------
 
-export async function listOnboardingApplications(status?: string) {
-  const url = status ? `/admin/applications?status=${status}` : '/admin/applications';
-  const { data } = await client().get(url);
-  return data as any[];
-}
-
-export async function getOnboardingApplication(id: string) {
-  const { data } = await client().get(`/admin/applications/${id}`);
-  return data;
+export async function resolveOnboardingApplicationId(app: CbsApplication): Promise<string | null> {
+  const cbsApplicationId = app?.applicationId;
+  if (!cbsApplicationId) return null;
+  try {
+    const { data } = await client.get(
+      `/admin/applications/by-cbs/${encodeURIComponent(cbsApplicationId)}`,
+    );
+    return (data as any)?.id ?? null;
+  } catch (err: any) {
+    if (err?.response?.status === 404) return null;
+    throw err;
+  }
 }
 
 export async function rejectApplication(id: string, reason: string) {
-  const { data } = await client().post(`/admin/applications/${id}/reject`, { reason });
+  const { data } = await client.post(`/admin/applications/${id}/reject`, { reason });
   return data;
 }
 
 // ------------------------------------------------------------------
 // Membership form
 // ------------------------------------------------------------------
-
 export async function downloadMembershipForm(id: string): Promise<Blob> {
-  const { data } = await client().get(`/admin/applications/${id}/membership-form`, {
+  const { data } = await client.get(`/admin/applications/${id}/membership-form`, {
     responseType: 'blob',
   });
   return data;
 }
+
 
 // ------------------------------------------------------------------
 // Notifications
@@ -143,12 +176,12 @@ export async function downloadMembershipForm(id: string): Promise<Blob> {
 
 export async function listNotifications(limit?: number) {
   const url = limit ? `/admin/notifications?limit=${limit}` : '/admin/notifications';
-  const { data } = await client().get(url);
+  const { data } = await client.get(url);
   return data as any[];
 }
 
 export async function unreadNotificationCount() {
-  const { data } = await client().get('/admin/notifications/unread-count');
+  const { data } = await client.get('/admin/notifications/unread-count');
   return typeof data === 'number' ? data : (data as any)?.count ?? 0;
 }
 
@@ -162,17 +195,17 @@ export interface NotificationTemplate {
 }
 
 export async function listNotificationTemplates(): Promise<NotificationTemplate[]> {
-  const { data } = await client().get('/admin/notifications/templates');
+  const { data } = await client.get('/admin/notifications/templates');
   return Array.isArray(data) ? data : [];
 }
 
 export async function markNotificationRead(id: string) {
-  const { data } = await client().post(`/admin/notifications/${id}/read`);
+  const { data } = await client.post(`/admin/notifications/${id}/read`);
   return data;
 }
 
 export async function markAllNotificationsRead() {
-  const { data } = await client().post('/admin/notifications/read-all');
+  const { data } = await client.post('/admin/notifications/read-all');
   return data;
 }
 
@@ -192,6 +225,6 @@ export async function sendCustomerNotification(payload: {
   body: string;
   templateId?: string;
 }) {
-  const { data } = await client().post('/admin/notifications/send', payload);
+  const { data } = await client.post('/admin/notifications/send', payload);
   return data;
 }

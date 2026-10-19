@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { fetchAllApplications, getApiErrorMessage } from '../../api/client';
 import { CbsApplication, statusLabel } from '../../types';
@@ -17,8 +17,11 @@ export default function AdminDashboard() {
   const [error, setError] = useState('');
   const [refreshing, setRefreshing] = useState(false);
   const [lastUpdated, setLastUpdated] = useState<string | null>(null);
+  const inFlight = useRef(false);
 
   const load = async (silent = false) => {
+    if (inFlight.current) return;
+    inFlight.current = true;
     if (silent) setRefreshing(true);
     else setLoading(true);
     try {
@@ -32,6 +35,7 @@ export default function AdminDashboard() {
     } finally {
       setLoading(false);
       setRefreshing(false);
+      inFlight.current = false;
     }
   };
 

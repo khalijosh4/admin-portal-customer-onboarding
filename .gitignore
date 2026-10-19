@@ -4,3 +4,8 @@ dist-ssr
 *.local
 .DS_Store
 npm-debug.log*
+backend/.env
+backend/uploads/*
+!backend/uploads/.gitkeep
+backend/*.log
+backend/webhook-credentials.json

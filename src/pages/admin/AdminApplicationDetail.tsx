@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { fetchApplication, getApiErrorMessage, submitToCore } from '../../api/client';
-import { rejectApplication, downloadMembershipForm } from '../../api/onboarding';
+import { fetchApplication, getApiErrorMessage, submitToCore, verifyIdentity, isIdentityVerified, IDENTITY_REVIEW_DEFAULT_REASON } from '../../api/client';
+import { rejectApplication, downloadMembershipForm, resolveOnboardingApplicationId, getOnboardingUser } from '../../api/onboarding';
 import { CbsApplication, statusLabel } from '../../types';
 import { buildDocImages, DocImage } from '../../utils/images';
 
@@ -36,17 +36,35 @@ export default function AdminApplicationDetail() {
   const [message, setMessage] = useState<{ kind: 'ok' | 'err' | 'info'; text: string } | null>(null);
   const [lightbox, setLightbox] = useState<DocImage | null>(null);
 
+  // Manual identity review
+  const [verified, setVerified] = useState(false);
+  const [showVerify, setShowVerify] = useState(false);
+  const [reviewDecision, setReviewDecision] = useState<'APPROVED' | 'REJECTED'>('APPROVED');
+  const [reviewReason, setReviewReason] = useState(IDENTITY_REVIEW_DEFAULT_REASON);
+  const [reviewing, setReviewing] = useState(false);
+
+  const reviewerName = (() => {
+    const me = getOnboardingUser();
+    return me?.fullName || me?.email || 'Unknown admin';
+  })();
+
   useEffect(() => {
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
 
   const load = async () => {
-    setApp(await fetchApplication(id as string));
+    const data = await fetchApplication(id as string);
+    setApp(data);
+    setVerified(isIdentityVerified(data));
   };
 
   const approveAndPush = async () => {
     setMessage(null);
+    if (!verified) {
+      setMessage({ kind: 'err', text: 'Verify the applicant\'s identity before submitting to the core.' });
+      return;
+    }
     setBusy(true);
     try {
       const result = await submitToCore(id as string);
@@ -74,12 +92,54 @@ export default function AdminApplicationDetail() {
     }
   };
 
+  const openVerify = () => {
+    setReviewDecision('APPROVED');
+    setReviewReason(IDENTITY_REVIEW_DEFAULT_REASON);
+    setShowVerify(true);
+    setMessage(null);
+  };
+
+  const submitVerify = async () => {
+    if (!reviewReason.trim()) return;
+    setReviewing(true);
+    setMessage(null);
+    try {
+      const me = getOnboardingUser();
+      const reviewedBy: string | undefined = me?.fullName || me?.email || undefined;
+      await verifyIdentity(app?.applicationId || (id as string), {
+        decision: reviewDecision,
+        reason: reviewReason.trim(),
+        ...(reviewedBy ? { reviewedBy } : {}),
+      });
+      setShowVerify(false);
+      if (reviewDecision === 'APPROVED') {
+        setVerified(true);
+        setMessage({ kind: 'ok', text: 'Identity review approved. You can now approve & submit to the core.' });
+      } else {
+        setVerified(false);
+        setMessage({ kind: 'info', text: 'Identity review recorded as REJECTED. The application was not submitted.' });
+      }
+    } catch (err: any) {
+      setMessage({ kind: 'err', text: getApiErrorMessage(err, 'Could not submit the identity review') });
+    } finally {
+      setReviewing(false);
+    }
+  };
+
   const reject = async () => {
     if (!rejectReason.trim()) return;
     setMessage(null);
     setRejecting(true);
     try {
-      await rejectApplication(id as string, rejectReason.trim());
+      const resolved = await resolveOnboardingApplicationId(app as any);
+      if (!resolved) {
+        setMessage({
+          kind: 'err',
+          text: 'No matching application was found in the onboarding system, so this application cannot be rejected from here.',
+        });
+        return;
+      }
+      await rejectApplication(resolved, rejectReason.trim());
       setShowReject(false);
       setMessage({ kind: 'ok', text: `Application rejected. The member was notified via SMS with the reason.` });
       load();
@@ -93,7 +153,15 @@ export default function AdminApplicationDetail() {
   const printMembershipForm = async () => {
     setMessage(null);
     try {
-      const blob = await downloadMembershipForm(id as string);
+      const resolved = await resolveOnboardingApplicationId(app as any);
+      if (!resolved) {
+        setMessage({
+          kind: 'err',
+          text: 'No matching application was found in the onboarding system to generate the membership form. This happens when the application does not exist in the onboarding portal.',
+        });
+        return;
+      }
+      const blob = await downloadMembershipForm(resolved);
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
@@ -146,6 +214,7 @@ export default function AdminApplicationDetail() {
           <Badge ok={app.paybill} label="Paybill" />
           <Badge ok={app.standingOrderEnabled} label="Standing order" />
           <Badge ok={app.paymentAmount && app.paymentAmount > 0} label="Payment received" />
+          <Badge ok={verified} label="Identity verified" />
         </div>
 
         <div className="mb-6 flex flex-wrap gap-3">
@@ -250,14 +319,33 @@ export default function AdminApplicationDetail() {
         )}
 
         {canSubmit && (
-          <div className="mt-8 flex flex-wrap gap-3 border-t border-fortune-ink/10 pt-6">
-            <button className="btn-primary" disabled={busy} onClick={approveAndPush}>
-              {busy ? 'Submitting…' : 'Approve & submit to core'}
-            </button>
-            {message?.kind === 'err' && message.text.includes('INTERNAL_ERROR') && (
-              <button className="btn-secondary" disabled={busy} onClick={approveAndPush}>
-                {busy ? 'Retrying…' : 'Retry submission'}
+          <div className="mt-8 space-y-3 border-t border-fortune-ink/10 pt-6">
+            <div className="flex flex-wrap items-center gap-3">
+              <button
+                className={verified ? 'btn-secondary' : 'btn-primary'}
+                type="button"
+                onClick={openVerify}
+              >
+                {verified ? '✓ Identity verified — review again' : 'Verify identity'}
               </button>
+              <button
+                className="btn-primary"
+                disabled={busy || !verified || reviewing}
+                title={!verified ? "Verify the applicant's identity first" : undefined}
+                onClick={approveAndPush}
+              >
+                {busy ? 'Submitting…' : 'Approve & submit to core'}
+              </button>
+              {message?.kind === 'err' && message.text.includes('INTERNAL_ERROR') && (
+                <button className="btn-secondary" disabled={busy || !verified} onClick={approveAndPush}>
+                  {busy ? 'Retrying…' : 'Retry submission'}
+                </button>
+              )}
+            </div>
+            {!verified && (
+              <p className="text-xs text-fortune-ink/50">
+                Manual identity verification is required before this application can be submitted to the core.
+              </p>
             )}
           </div>
         )}
@@ -294,6 +382,95 @@ export default function AdminApplicationDetail() {
                 onClick={reject}
               >
                 {rejecting ? 'Rejecting…' : 'Confirm rejection'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showVerify && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"
+          onClick={() => setShowVerify(false)}
+        >
+          <div
+            className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-2xl bg-white p-6 shadow-xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h2 className="text-lg font-semibold text-fortune-ink">Manual identity review</h2>
+            <p className="mt-1 text-sm text-fortune-ink/50">
+              Check the ID, passport photo and captured selfie match the applicant before approving.
+            </p>
+
+            <div className="mt-4 grid grid-cols-2 gap-4 sm:grid-cols-4">
+              {buildDocImages(app as any)
+                .filter((d) => ['idFrontUrl', 'idBackUrl', 'passportUrl', 'selfieUrl'].includes(d.key))
+                .map((doc) =>
+                  doc.dataUrl ? (
+                    <button
+                      key={doc.key}
+                      type="button"
+                      onClick={() => setLightbox(doc)}
+                      className="group text-left"
+                    >
+                      <img
+                        src={doc.dataUrl}
+                        alt={doc.label}
+                        className="h-28 w-full rounded-lg border border-fortune-ink/10 object-cover transition group-hover:ring-2 group-hover:ring-fortune-green"
+                      />
+                      <p className="mt-1 text-center text-xs font-medium text-fortune-ink/60">{doc.label}</p>
+                    </button>
+                  ) : (
+                    <div key={doc.key}>
+                      <div className="flex h-28 items-center justify-center rounded-lg border border-dashed border-fortune-ink/20 bg-fortune-ink/5 text-xs text-fortune-ink/30">
+                        No image
+                      </div>
+                      <p className="mt-1 text-center text-xs text-fortune-ink/40">{doc.label}</p>
+                    </div>
+                  ),
+                )}
+            </div>
+
+            <div className="mt-5">
+              <p className="mb-2 text-sm font-medium text-fortune-ink">Decision</p>
+              <div className="flex gap-4">
+                {(['APPROVED', 'REJECTED'] as const).map((d) => (
+                  <label key={d} className="flex items-center gap-2 text-sm">
+                    <input
+                      type="radio"
+                      name="reviewDecision"
+                      value={d}
+                      checked={reviewDecision === d}
+                      onChange={() => setReviewDecision(d)}
+                    />
+                    {d === 'APPROVED' ? 'Approve identity' : 'Reject identity'}
+                  </label>
+                ))}
+              </div>
+            </div>
+
+            <textarea
+              className="field-input mt-4"
+              rows={3}
+              placeholder="Reason (required)…"
+              value={reviewReason}
+              onChange={(e) => setReviewReason(e.target.value)}
+            />
+
+            <p className="mt-3 text-xs text-fortune-ink/50">
+              Reviewed by: <span className="font-medium text-fortune-ink/70">{reviewerName}</span>
+            </p>
+
+            <div className="mt-4 flex justify-end gap-3">
+              <button className="btn-secondary" type="button" onClick={() => setShowVerify(false)}>
+                Cancel
+              </button>
+              <button
+                className="btn-primary"
+                disabled={reviewing || !reviewReason.trim()}
+                onClick={submitVerify}
+              >
+                {reviewing ? 'Submitting…' : 'Submit identity review'}
               </button>
             </div>
           </div>

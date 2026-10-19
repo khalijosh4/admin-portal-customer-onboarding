@@ -1,0 +1,17 @@
+[31m[Nest] 18612  - [39m18/10/2026, 17:03:13 [31m  ERROR[39m [38;5;3m[NestApplication] [39m[31mError: listen EADDRINUSE: address already in use :::5000[39m[38;5;3m +11ms[39m
+Unhandled Rejection (non-fatal): Error: listen EADDRINUSE: address already in use :::5000
+    at Server.setupListenHandle [as _listen2] (node:net:2008:16)
+    at listenInCluster (node:net:2065:12)
+    at Server.listen (node:net:2170:7)
+    at ExpressAdapter.listen (C:\Users\jgithinji\Desktop\PROJECTS\Admin Portal\backend\node_modules\@nestjs\platform-express\adapters\express-adapter.js:95:32)
+    at C:\Users\jgithinji\Desktop\PROJECTS\Admin Portal\backend\node_modules\@nestjs\core\nest-application.js:183:30
+    at new Promise (<anonymous>)
+    at NestApplication.listen (C:\Users\jgithinji\Desktop\PROJECTS\Admin Portal\backend\node_modules\@nestjs\core\nest-application.js:173:16)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async bootstrap (C:\Users\jgithinji\Desktop\PROJECTS\Admin Portal\backend\dist\main.js:56:5) {
+  code: 'EADDRINUSE',
+  errno: -4091,
+  syscall: 'listen',
+  address: '::',
+  port: 5000
+}

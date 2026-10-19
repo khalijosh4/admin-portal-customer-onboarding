@@ -5,7 +5,11 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "dev:admin": "vite",
+    "dev:backend": "npm --prefix backend run start:dev",
+    "dev:all": "node scripts/dev.cjs",
     "build": "tsc -b && vite build",
+    "build:backend": "npm --prefix backend run build",
     "preview": "vite preview"
   },
   "dependencies": {
